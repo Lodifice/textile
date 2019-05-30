@@ -3,6 +3,8 @@ extern crate nom;
 
 use nom::{many0, AtEof, ErrorKind, IResult};
 
+mod interval_map;
+
 #[cfg(test)]
 mod test;
 
