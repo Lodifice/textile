@@ -1,0 +1,8 @@
+[package]
+name = "tex-parser"
+version = "0.1.0"
+authors = ["Richard Mörbitz <richard.moerbitz@tu-dresden.de>"]
+edition = "2018"
+
+[dependencies]
+nom = "^4.2"
