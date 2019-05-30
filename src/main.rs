@@ -38,48 +38,96 @@ pub enum Character<C> {
 #[macro_use]
 extern crate nom;
 
-use nom::{ErrorKind, IResult};
+use nom::{AtEof, ErrorKind, IResult};
 
-static mut letters: Option<Vec<char>> = None;
-static mut others: Option<Vec<char>> = None;
-
-unsafe fn letters_foo() -> &'static mut Vec<char> {
-    if letters.is_none() {
-        letters = Some(vec!['a', 'b', 'c']);
-    }
-    letters.as_mut().unwrap()
+#[derive(PartialEq, Clone, Debug)]
+struct State {
+    letters: Vec<char>,
+    others: Vec<char>,
 }
 
-unsafe fn others_foo() -> &'static mut Vec<char> {
-    if others.is_none() {
-        others = Some(vec!['1', '@']);
-    }
-    others.as_mut().unwrap()
-}
-
-fn categorize_character(input: &str) -> IResult<&str, Character<char>> {
-    unsafe {
-        if letters_foo().contains(&input.chars().next().unwrap()) {
-            Ok((&input[1..], Character::Cat11(input.chars().next().unwrap())))
-        } else if others_foo().contains(&input.chars().next().unwrap()) {
-            if input.chars().next().unwrap() == '1' {
-                others_foo().push('a');
-                letters_foo().remove(0);
-            }
-            Ok((&input[1..], Character::Cat12(input.chars().next().unwrap())))
-        } else {
-            Err(nom::Err::Error(error_position!(&input[0..], ErrorKind::Tag)))
+impl Default for State {
+    fn default() -> Self {
+        State {
+            letters: vec!['a', 'b', 'c'],
+            others: vec!['1', '@'],
         }
     }
 }
 
-fn categorize_string(input: &str) -> IResult<&str, Vec<Character<char>>> {
+#[derive(Debug, Clone, PartialEq)]
+struct TextileInput<'i> {
+    state: State,
+    input: &'i str,
+}
+
+impl<'i> TextileInput<'i> {
+    fn new(input: &'i str, state: State) -> Self {
+        TextileInput { input, state }
+    }
+}
+
+impl<'i> AtEof for TextileInput<'i> {
+    fn at_eof(&self) -> bool {
+        true
+    }
+}
+
+/*
+impl<'i, 's> InputTakeAtPosition for TextileInput<'i, 's> {
+    fn split_at_position<P>(&self, predicate: P) -> IResult<Self, Self, u32>
+    where
+        P: Fn(Self::Item) -> bool,
+    {
+        match (0..self.input.len()).find(|b| predicate(self.input[*b])) {
+            Some(i) => Ok((
+                TextileInput::new(
+        }
+    }
+}
+*/
+
+fn categorize_character<'i>(input: TextileInput<'i>) -> IResult<TextileInput<'i>, Character<char>> {
+    let mut input: TextileInput = input;
+    let letter = match input.input.chars().next() {
+        Some(l) => l,
+        None => return Err(nom::Err::Error(error_position!(input, ErrorKind::Tag))),
+    };
+    if input.state.letters.contains(&letter) {
+        return Ok((
+            TextileInput::new(&input.input[1..], input.state),
+            Character::Cat11(letter),
+        ));
+    }
+
+    if input.state.others.contains(&letter) {
+        if letter == '1' {
+            input.state.others.push('a');
+            input.state.letters.remove(0);
+        }
+        return Ok((
+            TextileInput::new(&input.input[1..], input.state),
+            Character::Cat12(letter),
+        ));
+    }
+
+    Err(nom::Err::Error(error_position!(input, ErrorKind::Tag)))
+}
+
+fn categorize_string<'i>(
+    input: TextileInput<'i>,
+) -> IResult<TextileInput<'i>, Vec<Character<char>>> {
     many0!(input, categorize_character)
 }
 
 fn main() {
-    println!("{:?}", categorize_character("a"));
-    println!("{:?}", categorize_string("abba1@a#"));
+    let state = State::default();
+    println!(
+        "{:?}",
+        categorize_character(TextileInput::new("a", state.clone()))
+    );
+    println!(
+        "{:?}",
+        categorize_string(TextileInput::new("abba1@a#", state))
+    );
 }
-
-                 
