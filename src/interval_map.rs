@@ -1,43 +1,205 @@
-use std::ops::RangeInclusive;
+use std::fmt::Debug;
+use std::ops::Range;
 
-pub struct IntervalMap<Idx, V> {
+use num::{Bounded, Num};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntIntervalMap<Idx, V> {
     intervals: Vec<(Idx, V)>,
 }
 
-impl<Idx, V> IntervalMap<Idx, V>
+impl<Idx, V> IntervalMap<Idx, V> for IntIntervalMap<Idx, V>
 where
-    Idx: Copy + PartialOrd,
-    V: Clone,
+    Idx: Copy + PartialOrd + Num + Bounded,
+    V: Copy + PartialEq,
 {
-    pub fn assign(&mut self, range: RangeInclusive<Idx>, value: V) {
-        // Find start of range
-        let (split_start, old_value) = match self
-            .intervals
+    fn assign(&mut self, range: Range<Idx>, new_value: V) {
+        let lower_thresholds: Vec<Idx> = [Idx::min_value()]
             .iter()
-            .enumerate()
-            .find(|(i, (t, v))| t <= range.start())
-            .map(|(i, (_, v))| (i, v))
-        {
-            Some(n) => n,
-            None => unreachable!(),
-        };
+            .chain(self.intervals.iter().map(|(idx, _)| idx))
+            .map(|idx| idx.clone())
+            .collect();
 
-        // Remove all intervals in range
-        let mut tail_intervals = vec![];
-        for (idx, value) in self.intervals.drain(split_start..) {
-            if idx <= *range.end() {
-                continue;
+        let drain = self.intervals.drain(..);
+
+        let mut result = vec![];
+
+        for (lower, (upper, value)) in lower_thresholds.iter().zip(drain) {
+            let start_in = range.start >= *lower;
+            let end_in = range.end < upper;
+            match (start_in, end_in) {
+                // range is contained in current interval
+                (true, true) => {
+                    result.push((range.start, value.clone()));
+                    result.push((range.end, new_value.clone()));
+                    result.push((upper, value));
+                }
+                // range is greater or overlaps to the next
+                (true, false) => {
+                    // range starts in current interval
+                    if range.start < upper {
+                        result.push((range.start, value));
+                        result.push((upper, new_value.clone()));
+                    // range is greater than current interval
+                    } else {
+                        result.push((upper, value));
+                    }
+                }
+                // range completes earlier or overlaps to the current interval
+                (false, true) => {
+                    if range.end < *lower {
+                        result.push((upper, value))
+                    } else {
+                        result.push((range.end, new_value.clone()));
+                        result.push((upper, value));
+                    }
+                }
+                // current interval is contained in range
+                (false, false) => {
+                    result.push((range.end, new_value.clone()));
+                }
             }
-            tail_intervals.push((*range.end(), value));
         }
-
-        self.intervals.push((*range.start(), old_value));
-        self.intervals.push((*range.end(), v));
-
-        self.intervals.extend(tail_intervals);
+        self.intervals = result;
+        self.defrag();
     }
 
-    pub fn assign_single(&mut self, single: Idx, value: V) {
-        self.assign(RangeInclusive::new(single, single), value);
+    fn assign_single(&mut self, single: Idx, value: V) {
+        self.assign(single..single + Idx::one(), value);
+    }
+
+    fn get(&self, index: Idx) -> V {
+        let mut last = Idx::min_value();
+        for (i, v) in self.intervals.iter() {
+            if index >= last && index < *i {
+                return *v;
+            }
+            last = *i;
+        }
+        return self
+            .intervals
+            .iter()
+            .last()
+            .expect("index out of bounds, check your implementation of the Bounded trait!")
+            .1;
+    }
+}
+
+impl<Idx, V> IntIntervalMap<Idx, V>
+where
+    Idx: Bounded,
+    V: PartialEq,
+{
+    pub fn debug(&self)
+    where
+        V: Debug,
+        Idx: Debug,
+    {
+        for (upper, value) in &self.intervals {
+            eprintln!("{:?}: {:?}", upper, value);
+        }
+    }
+
+    pub fn new(value: V) -> Self {
+        IntIntervalMap {
+            intervals: vec![(Idx::max_value(), value)],
+        }
+    }
+
+    fn defrag(&mut self) {
+        let mut result = vec![];
+        let drain = self.intervals.drain(..);
+        for (upper, value) in drain {
+            if result.last().map(|(_, v)| v) == Some(&value) {
+                match result.last_mut() {
+                    Some(last) => last.0 = upper,
+                    None => result.push((upper, value)),
+                }
+            } else {
+                result.push((upper, value));
+            }
+        }
+
+        self.intervals = result;
+    }
+}
+
+pub trait IntervalMap<Idx, V>
+where
+    Idx: Copy + PartialOrd,
+    V: Clone + PartialEq,
+{
+    fn get(&self, index: Idx) -> V;
+
+    fn assign(&mut self, range: Range<Idx>, new_value: V);
+
+    fn assign_single(&mut self, single: Idx, value: V);
+}
+
+#[cfg(test)]
+mod test {
+    use crate::interval_map::*;
+
+    #[test]
+    fn map_init() {
+        let map = IntIntervalMap::<u8, char>::new('a');
+        assert_eq!('a', map.get(0));
+        assert_eq!('a', map.get(255));
+        assert_eq!('a', map.get(10));
+    }
+
+    #[test]
+    fn map_single() {
+        let mut map = IntIntervalMap::<u8, char>::new('a');
+        map.assign(10..20, 'b');
+        assert_eq!('a', map.get(0));
+        assert_eq!('a', map.get(255));
+        assert_eq!('b', map.get(10));
+        assert_eq!('b', map.get(19));
+        assert_eq!('a', map.get(20));
+    }
+
+    #[test]
+    fn test_seq() {
+        let mut map = IntIntervalMap::<u8, char>::new('z');
+        map.debug();
+        eprintln!();
+        map.assign(2..20, 'a');
+        map.debug();
+
+        eprintln!();
+        map.assign(1..5, 'a');
+        map.debug();
+
+        eprintln!();
+        map.assign(10..30, 'b');
+        map.debug();
+
+        eprintln!();
+        map.assign(11..31, 'b');
+        map.debug();
+
+        eprintln!();
+        map.assign(5..15, 'c');
+        map.debug();
+
+        eprintln!();
+        map.assign(0..30, 'a');
+        map.debug();
+
+        eprintln!();
+        map.assign(0..30, 'a');
+        map.debug();
+
+        eprintln!();
+        map.assign_single(10, '!');
+        map.debug();
+
+        assert_eq!('!', map.get(10));
+        assert_eq!('a', map.get(11));
+        assert_eq!('a', map.get(0));
+        assert_eq!('z', map.get(255));
+        assert_eq!('b', map.get(30));
+        assert_eq!('z', map.get(31));
     }
 }
