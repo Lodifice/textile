@@ -1,9 +1,9 @@
-use crate::char::Character::*;
+use crate::char::Category::*;
 use crate::char::*;
 
 macro_rules! cat_string {
     ( $($c:ident, $($x:literal),*),* ) => {
-        vec![$( $($c($x)),* ),*]
+        vec![$( $(($c, $x)),* ),*]
     }
 }
 
@@ -11,7 +11,7 @@ macro_rules! cat_string {
 fn catergory_one_char() {
     let state = State::default();
     let result = categorize_string(TextileInput::new("a", state)).expect("parser error!");
-    assert_eq!(vec![Cat11('a')], result.1)
+    assert_eq!(vec![(Cat11, 'a')], result.1)
 }
 
 #[test]

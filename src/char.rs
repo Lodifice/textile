@@ -2,64 +2,43 @@ use crate::interval_map::{IntIntervalMap, IntervalMap};
 use nom::{many0, AtEof, ErrorKind, IResult};
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum Character<C> {
-    Cat00(C), // Escape character (/)
-    Cat01(C), // Begin group ({)
-    Cat02(C), // End group (})
-    Cat03(C), // Math shift ($)
-    Cat04(C), // Alignment (&)
-    Cat05(C), // End of line
-    Cat06(C), // Macro parameter (#)
-    Cat07(C), // Math superscript (_)
-    Cat08(C), // Math subscript (^)
-    Cat09(C), // Ignored
-    Cat10(C), // Space
-    Cat11(C), // Letter
-    Cat12(C), // Other (numbers, special characters)
-    Cat13(C), // Active character (~)
-    Cat14(C), // Start of comment (%)
-    Cat15(C), // Invalid input ([DEL])
+pub enum Category {
+    Cat00, // Escape character (/)
+    Cat01, // Begin group ({)
+    Cat02, // End group (})
+    Cat03, // Math shift ($)
+    Cat04, // Alignment (&)
+    Cat05, // End of line
+    Cat06, // Macro parameter (#)
+    Cat07, // Math superscript (_)
+    Cat08, // Math subscript (^)
+    Cat09, // Ignored
+    Cat10, // Space
+    Cat11, // Letter
+    Cat12, // Other (numbers, special characters)
+    Cat13, // Active character (~)
+    Cat14, // Start of comment (%)
+    Cat15, // Invalid input ([DEL])
 }
 
-macro_rules! map_cats {
-    ($u: ident, [$($cat:ident),*], $f: ident) => {
-        match $u {
-            $(
-                Character::$cat(v) => Character::$cat($f(v))
-            ),*
-        }
-    }
-}
-
-impl<U> Character<U> {
-    pub fn map<V>(self, f: &Fn(U) -> V) -> Character<V> {
-        map_cats!(
-            self,
-            [
-                Cat00, Cat01, Cat02, Cat03, Cat04, Cat05, Cat06, Cat07, Cat08, Cat09, Cat10, Cat11,
-                Cat12, Cat13, Cat14, Cat15
-            ],
-            f
-        )
-    }
-}
+type Character = (Category, char);
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct State {
-    category_map: IntIntervalMap<u32, Character<()>>,
+    category_map: IntIntervalMap<u32, Category>,
 }
 
 macro_rules! assign {
     ($map:ident, $lo:literal, $hi:literal, $cls:ident) => {
-        $map.assign(($lo as u32)..($hi as u32) + 1, Character::$cls(()));
+        $map.assign(($lo as u32)..($hi as u32) + 1, Category::$cls);
     };
     ($map:ident, $idx:literal, $cls:ident) => {
-        $map.assign_single($idx as u32, Character::$cls(()));
+        $map.assign_single($idx as u32, Category::$cls);
     };
 }
 impl Default for State {
     fn default() -> Self {
-        let mut map = IntIntervalMap::new(Character::Cat14(()));
+        let mut map = IntIntervalMap::new(Category::Cat14);
 
         assign!(map, '\\', Cat00);
         assign!(map, '{', Cat01);
@@ -106,19 +85,15 @@ impl<'i> AtEof for TextileInput<'i> {
     }
 }
 
-pub fn categorize_character<'i>(
-    input: TextileInput<'i>,
-) -> IResult<TextileInput<'i>, Character<char>> {
+pub fn categorize_character<'i>(input: TextileInput<'i>) -> IResult<TextileInput<'i>, Character> {
     let letter = match input.input.chars().next() {
         Some(l) => l,
         None => return Err(nom::Err::Error(error_position!(input, ErrorKind::Tag))),
     };
-    let out = input.state.category_map.get(letter as u32).map(&|_| letter);
+    let out = (input.state.category_map.get(letter as u32), letter);
     Ok((TextileInput::new(&input.input[1..], input.state), out))
 }
 
-pub fn categorize_string<'i>(
-    input: TextileInput<'i>,
-) -> IResult<TextileInput<'i>, Vec<Character<char>>> {
+pub fn categorize_string<'i>(input: TextileInput<'i>) -> IResult<TextileInput<'i>, Vec<Character>> {
     many0!(input, categorize_character)
 }
