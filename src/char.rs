@@ -21,7 +21,7 @@ pub enum Category {
     Cat15, // Invalid input ([DEL])
 }
 
-type Character = (Category, char);
+pub type Character = (Category, char);
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct State {
@@ -47,8 +47,8 @@ impl Default for State {
         assign!(map, '&', Cat04);
         assign!(map, '\n', Cat05);
         assign!(map, '#', Cat06);
-        assign!(map, '_', Cat07);
-        assign!(map, '^', Cat08);
+        assign!(map, '^', Cat07);
+        assign!(map, '_', Cat08);
         assign!(map, '\0', Cat09);
         assign!(map, ' ', Cat10);
         assign!(map, '\t', Cat10);

@@ -7,6 +7,38 @@ macro_rules! cat_string {
     }
 }
 
+#[cfg(test)]
+mod tokenizer_test {
+    use crate::char::Category::*;
+    use crate::token::Token::*;
+    use crate::token::*;
+
+    fn token_vec(input: &str) -> Vec<Token> {
+        let tokenizer = Tokenizer::new(input);
+        tokenizer.collect()
+    }
+
+    #[test]
+    fn test_letter() {
+        assert_eq!(token_vec("a"), vec![Character('a', Cat11)]);
+    }
+
+    #[test]
+    fn test_superscript_escape_single() {
+        assert_eq!(token_vec("\\^^@"), vec![ControlSequence("\0".into())]);
+        assert_eq!(token_vec("\\^^?"), vec![ControlSequence("\u{7f}".into())]);
+        assert_eq!(token_vec("\\^^f1"), vec![ControlSequence("\u{f1}".into())]);
+        assert_eq!(
+            token_vec("\\^^61bc^^V"),
+            vec![ControlSequence("abc".into()).into(), Character(' ', Cat10)]
+        );
+        assert_eq!(
+            token_vec("\\^^5ca"),
+            vec![ControlSequence("\\".into()), Character('a', Cat11)]
+        );
+    }
+}
+
 #[test]
 fn catergory_one_char() {
     let state = State::default();

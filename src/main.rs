@@ -1,3 +1,8 @@
+use tex_parser::char::*;
+use tex_parser::token::*;
+
 fn main() {
-    println!("hello_world");
+    let tokenizer = Tokenizer::new("this^^5cabc is some \\test and \\_stuff");
+    let result: Vec<Token> = tokenizer.collect();
+    eprintln!("{:?}", result);
 }
