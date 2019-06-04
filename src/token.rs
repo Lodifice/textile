@@ -20,21 +20,38 @@ pub enum TokenizerState {
     SkippingBlanks,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Tokenizer<'i> {
+#[derive(Debug)]
+pub struct Tokenizer<L> {
     category_map: IntIntervalMap<u32, Category>,
     state: TokenizerState,
-    input: &'i str,
+    lines: L,
+    /// Buffer holding the current line
+    line: String,
+    /// Pointer to the current buffer position
+    pos: usize,
+    endlinechar: char,
 }
 
-impl<'i> Iterator for Tokenizer<'i> {
+impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let chr = match self.pop_char() {
-            Some(c) => c,
-            None => return None,
-        };
+        let chr;
+        loop {
+            match self.pop_char() {
+                Some(c) => {
+                    chr = c;
+                    break;
+                }
+                // try to read next line
+                None => {
+                    if !self.next_line() {
+                        return None;
+                    }
+                    self.state = TokenizerState::LineStart;
+                }
+            };
+        }
         let cat = self.cat(chr);
 
         // process state as described in chapter 8, p. 46 of the texbook
@@ -67,7 +84,34 @@ impl<'i> Iterator for Tokenizer<'i> {
                 self.state = TokenizerState::LineMiddle;
                 Some(Token::Character(chr, cat))
             }
-            _ => None,
+            Cat05 => {
+                // throw away rest of line
+                while let Some(_) = self.pop_char() {}
+                match self.state {
+                    TokenizerState::LineStart => Some(Token::ControlSequence("par".into())),
+                    TokenizerState::LineMiddle => Some(Token::Character(' ', self.cat(' '))),
+                    TokenizerState::SkippingBlanks => self.next(),
+                }
+            }
+            Cat09 => self.next(),
+            Cat10 => match self.state {
+                TokenizerState::LineStart | TokenizerState::SkippingBlanks => self.next(),
+                TokenizerState::LineMiddle => {
+                    self.state = TokenizerState::SkippingBlanks;
+                    Some(Token::Character(' ', self.cat(' ')))
+                }
+            },
+            Cat14 => {
+                let mut comment = String::new();
+                while let Some(c) = self.pop_char() {
+                    comment.push(c);
+                }
+                Some(Token::Comment(comment))
+            }
+            Cat15 => {
+                eprintln!("invalid character {:?}", chr);
+                self.next()
+            }
         }
     }
 }
@@ -81,19 +125,43 @@ macro_rules! assign {
     };
 }
 
-impl<'i> Tokenizer<'i> {
-    /// pop the next character from the input.
+impl<L: Iterator<Item = String>> Tokenizer<L> {
+    /// The input from the current position
+    fn input(&self) -> &str {
+        &self.line[self.pos..]
+    }
+
+    /// Advance to the next line of input.
+    /// Preprocessing is done as described on p. 46 of the texbook.
+    ///
+    /// Returns if the operation was successful, i.e. returns false
+    /// if the end of input was reached.
+    #[must_use = "the end of input must be handled"]
+    fn next_line(&mut self) -> bool {
+        self.state = TokenizerState::LineStart;
+        let mut line = match self.lines.next() {
+            Some(l) => l,
+            None => return false,
+        };
+        line.truncate(line.trim_end_matches(' ').len());
+        line.push(self.endlinechar);
+        self.line = line;
+        self.pos = 0;
+        true
+    }
+
+    /// pop the next character from the current line.
     /// the character might have been esacped,
     /// which consumes more input than one character.
     fn pop_char(&mut self) -> Option<char> {
         match self.parse_superscript_char() {
             Some((c, l)) => {
-                self.input = &self.input[l..];
+                self.pos += l;
                 Some(c)
             }
-            None => match self.input.chars().next() {
+            None => match self.input().chars().next() {
                 Some(c) => {
-                    self.input = &self.input[1..];
+                    self.pos += 1;
                     Some(c)
                 }
                 None => None,
@@ -106,7 +174,7 @@ impl<'i> Tokenizer<'i> {
     fn look_ahead(&self) -> Option<char> {
         match self.parse_superscript_char() {
             Some((c, _)) => Some(c),
-            None => self.input.chars().next(),
+            None => self.input().chars().next(),
         }
     }
 
@@ -117,7 +185,7 @@ impl<'i> Tokenizer<'i> {
     ///
     /// Returns the replacement character and length of consumed input, if successful
     fn parse_superscript_char(&self) -> Option<(char, usize)> {
-        let mut chars = self.input.chars();
+        let mut chars = self.input().chars();
         let c_start = match chars.next().filter(|c| self.cat(*c) == Cat07) {
             Some(c) => c,
             None => return None,
@@ -132,7 +200,7 @@ impl<'i> Tokenizer<'i> {
 
             if are_hexdigits {
                 let chr = from_u32(
-                    u8::from_str_radix(&self.input[2..4], 16)
+                    u8::from_str_radix(&self.input()[2..4], 16)
                         .expect("parse error with superscript-escaped hex character")
                         as u32,
                 )
@@ -156,7 +224,7 @@ impl<'i> Tokenizer<'i> {
         return None;
     }
 
-    pub fn new(input: &'i str) -> Self {
+    pub fn new(lines: L) -> Self {
         let mut map = IntIntervalMap::new(Category::Cat14);
 
         assign!(map, '\\', Cat00);
@@ -165,6 +233,7 @@ impl<'i> Tokenizer<'i> {
         assign!(map, '$', Cat03);
         assign!(map, '&', Cat04);
         assign!(map, '\n', Cat05);
+        assign!(map, '\r', Cat05);
         assign!(map, '#', Cat06);
         assign!(map, '^', Cat07);
         assign!(map, '_', Cat08);
@@ -180,12 +249,17 @@ impl<'i> Tokenizer<'i> {
         assign!(map, '~', Cat13);
         assign!(map, '%', Cat14);
         assign!(map, '\x01', '\x08', Cat15);
-        assign!(map, '\x0b', '\x1f', Cat15);
+        assign!(map, '\x0b', Cat15);
+        assign!(map, '\x0c', Cat15);
+        assign!(map, '\x0e', '\x1f', Cat15);
 
         Tokenizer {
             category_map: map,
             state: TokenizerState::LineStart,
-            input,
+            lines,
+            line: String::new(),
+            endlinechar: '\r',
+            pos: 0,
         }
     }
 }
