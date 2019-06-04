@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::ops::Range;
 
 use num::{Bounded, Num};
@@ -17,7 +16,7 @@ where
         let lower_thresholds: Vec<Idx> = [Idx::min_value()]
             .iter()
             .chain(self.intervals.iter().map(|(idx, _)| idx))
-            .map(|idx| idx.clone())
+            .cloned()
             .collect();
 
         let drain = self.intervals.drain(..);
@@ -30,8 +29,8 @@ where
             match (start_in, end_in) {
                 // range is contained in current interval
                 (true, true) => {
-                    result.push((range.start, value.clone()));
-                    result.push((range.end, new_value.clone()));
+                    result.push((range.start, value));
+                    result.push((range.end, new_value));
                     result.push((upper, value));
                 }
                 // range is greater or overlaps to the next
@@ -39,7 +38,7 @@ where
                     // range starts in current interval
                     if range.start < upper {
                         result.push((range.start, value));
-                        result.push((upper, new_value.clone()));
+                        result.push((upper, new_value));
                     // range is greater than current interval
                     } else {
                         result.push((upper, value));
@@ -50,13 +49,13 @@ where
                     if range.end < *lower {
                         result.push((upper, value))
                     } else {
-                        result.push((range.end, new_value.clone()));
+                        result.push((range.end, new_value));
                         result.push((upper, value));
                     }
                 }
                 // current interval is contained in range
                 (false, false) => {
-                    result.push((range.end, new_value.clone()));
+                    result.push((range.end, new_value));
                 }
             }
         }
@@ -76,12 +75,11 @@ where
             }
             last = *i;
         }
-        return self
-            .intervals
+        self.intervals
             .iter()
             .last()
             .expect("index out of bounds, check your implementation of the Bounded trait!")
-            .1;
+            .1
     }
 }
 
@@ -90,16 +88,6 @@ where
     Idx: Bounded,
     V: PartialEq,
 {
-    pub fn debug(&self)
-    where
-        V: Debug,
-        Idx: Debug,
-    {
-        for (upper, value) in &self.intervals {
-            eprintln!("{:?}: {:?}", upper, value);
-        }
-    }
-
     pub fn new(value: V) -> Self {
         IntIntervalMap {
             intervals: vec![(Idx::max_value(), value)],
@@ -162,38 +150,14 @@ mod test {
     #[test]
     fn test_seq() {
         let mut map = IntIntervalMap::<u8, char>::new('z');
-        map.debug();
-        eprintln!();
         map.assign(2..20, 'a');
-        map.debug();
-
-        eprintln!();
         map.assign(1..5, 'a');
-        map.debug();
-
-        eprintln!();
         map.assign(10..30, 'b');
-        map.debug();
-
-        eprintln!();
         map.assign(11..31, 'b');
-        map.debug();
-
-        eprintln!();
         map.assign(5..15, 'c');
-        map.debug();
-
-        eprintln!();
         map.assign(0..30, 'a');
-        map.debug();
-
-        eprintln!();
         map.assign(0..30, 'a');
-        map.debug();
-
-        eprintln!();
         map.assign_single(10, '!');
-        map.debug();
 
         assert_eq!('!', map.get(10));
         assert_eq!('a', map.get(11));
