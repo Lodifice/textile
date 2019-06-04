@@ -1,7 +1,27 @@
-use crate::char::Category;
-use crate::char::Category::*;
 use crate::interval_map::{IntIntervalMap, IntervalMap};
 use std::char::from_u32;
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum Category {
+    Cat00, // Escape character (/)
+    Cat01, // Begin group ({)
+    Cat02, // End group (})
+    Cat03, // Math shift ($)
+    Cat04, // Alignment (&)
+    Cat05, // End of line
+    Cat06, // Macro parameter (#)
+    Cat07, // Math superscript (_)
+    Cat08, // Math subscript (^)
+    Cat09, // Ignored
+    Cat10, // Space
+    Cat11, // Letter
+    Cat12, // Other (numbers, special characters)
+    Cat13, // Active character (~)
+    Cat14, // Start of comment (%)
+    Cat15, // Invalid input ([DEL])
+}
+
+use Category::*;
 
 /// Tokens as described in chapter 7 of the texbook
 #[derive(Debug, PartialEq, Clone)]
@@ -118,7 +138,8 @@ impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
 
 macro_rules! assign {
     ($map:ident, $lo:literal, $hi:literal, $cls:ident) => {
-        $map.assign(($lo as u32)..($hi as u32) + 1, Category::$cls);
+        #[allow(clippy::range_plus_one)]
+        $map.assign(($lo as u32)..($hi as u32 + 1), Category::$cls);
     };
     ($map:ident, $idx:literal, $cls:ident) => {
         $map.assign_single($idx as u32, Category::$cls);
@@ -200,9 +221,8 @@ impl<L: Iterator<Item = String>> Tokenizer<L> {
 
             if are_hexdigits {
                 let chr = from_u32(
-                    u8::from_str_radix(&self.input()[2..4], 16)
-                        .expect("parse error with superscript-escaped hex character")
-                        as u32,
+                    u32::from_str_radix(&self.input()[2..4], 16)
+                        .expect("parse error with superscript-escaped hex character"),
                 )
                 .expect("unicode error in superscript-escaped character!");
                 return Some((chr, 4));
@@ -221,7 +241,7 @@ impl<L: Iterator<Item = String>> Tokenizer<L> {
                 return Some((chr, 3));
             }
         }
-        return None;
+        None
     }
 
     pub fn new(lines: L) -> Self {
