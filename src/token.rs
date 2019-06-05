@@ -1,4 +1,4 @@
-use crate::interval_map::{IntIntervalMap, IntervalMap};
+use crate::imap::{IntIntervalMap, IntervalMap};
 use std::char::from_u32;
 
 /// TeX character codes, as defined on p. 37 of the Texbook.
