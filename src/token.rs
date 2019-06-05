@@ -1,24 +1,41 @@
 use crate::interval_map::{IntIntervalMap, IntervalMap};
 use std::char::from_u32;
 
+/// TeX character codes, as defined on p. 37 of the Texbook.
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum Category {
-    Cat00, // Escape character (/)
-    Cat01, // Begin group ({)
-    Cat02, // End group (})
-    Cat03, // Math shift ($)
-    Cat04, // Alignment (&)
-    Cat05, // End of line
-    Cat06, // Macro parameter (#)
-    Cat07, // Math superscript (_)
-    Cat08, // Math subscript (^)
-    Cat09, // Ignored
-    Cat10, // Space
-    Cat11, // Letter
-    Cat12, // Other (numbers, special characters)
-    Cat13, // Active character (~)
-    Cat14, // Start of comment (%)
-    Cat15, // Invalid input ([DEL])
+    /// Escape character (/)
+    Cat0,
+    /// Begin group ({)
+    Cat1,
+    /// End group (})
+    Cat2,
+    /// Math shift ($)
+    Cat3,
+    /// Alignment (&)
+    Cat4,
+    /// End of line
+    Cat5,
+    /// Macro parameter (#)
+    Cat6,
+    /// Math superscript (^)
+    Cat7,
+    /// Math subscript (_)
+    Cat8,
+    /// Ignored
+    Cat9,
+    /// Space
+    Cat10,
+    /// Letter
+    Cat11,
+    /// Other (numbers, special characters)
+    Cat12,
+    /// Active character (~)
+    Cat13,
+    /// Start of comment (%)
+    Cat14,
+    /// Invalid input ([DEL])
+    Cat15,
 }
 
 use Category::*;
@@ -89,12 +106,17 @@ pub enum Token {
 
 /// The tokenizer states as described in chapter 8 of the texbook
 #[derive(Debug, PartialEq, Clone)]
-pub enum TokenizerState {
+enum TokenizerState {
     LineStart,
     LineMiddle,
     SkippingBlanks,
 }
 
+/// A token generator for TeX.
+///
+/// Takes an iterator over input lines and transforms it to a sequence
+/// of tokens. The behaviour of the tokenizer can be changed mid-way changing
+/// the category code of a character (see TeXbook p. 37).
 #[derive(Debug)]
 pub struct Tokenizer<L> {
     category_map: IntIntervalMap<u32, Category>,
@@ -116,7 +138,7 @@ impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // return sytax tokens first, if available
+        // emtpy token buffer first, if available
         if let Some(t) = self.token_buffer.pop() {
             return Some(t);
         };
@@ -145,7 +167,7 @@ impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
 
         // process state as described in chapter 8, p. 46 of the texbook
         match cat {
-            Cat00 => match self.pop_char() {
+            Cat0 => match self.pop_char() {
                 None => self.push(Token::ControlSequence(String::new(), here)),
                 Some(c) => {
                     let mut content = String::new();
@@ -170,11 +192,11 @@ impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
                     self.push(Token::ControlSequence(content, here));
                 }
             },
-            Cat01 | Cat02 | Cat03 | Cat04 | Cat06 | Cat07 | Cat08 | Cat11 | Cat12 | Cat13 => {
+            Cat1 | Cat2 | Cat3 | Cat4 | Cat6 | Cat7 | Cat8 | Cat11 | Cat12 | Cat13 => {
                 self.state = TokenizerState::LineMiddle;
                 self.push(Token::Character(chr, cat))
             }
-            Cat05 => {
+            Cat5 => {
                 // throw away rest of line
                 let mut skipped = String::new();
                 while let Some(c) = self.pop_char() {
@@ -193,7 +215,7 @@ impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
                     TokenizerState::SkippingBlanks => (),
                 }
             }
-            Cat09 => {
+            Cat9 => {
                 self.push(Token::Other(OtherToken::IgnoredCharacter(chr), here));
             }
             Cat10 => match self.state {
@@ -309,15 +331,17 @@ impl<L: Iterator<Item = String>> Tokenizer<L> {
         }
     }
 
+    /// Get the catcode of a character
     fn cat(&self, c: char) -> Category {
         self.category_map.get(c as u32)
     }
+
     /// Parse a superscript-escaped character (e.g. ^^A or ^^0f).
     ///
     /// Returns the replacement character and length of consumed input, if successful
     fn parse_superscript_char(&self) -> Option<(char, usize)> {
         let mut chars = self.input().chars();
-        let c_start = match chars.next().filter(|c| self.cat(*c) == Cat07) {
+        let c_start = match chars.next().filter(|c| self.cat(*c) == Cat7) {
             Some(c) => c,
             None => return None,
         };
@@ -354,20 +378,21 @@ impl<L: Iterator<Item = String>> Tokenizer<L> {
         None
     }
 
+    /// Create a new tokenizer over `lines` with default character class assignments.
     pub fn new(lines: L) -> Self {
         let mut map = IntIntervalMap::new(Category::Cat12);
 
-        assign!(map, '\\', Cat00);
-        assign!(map, '{', Cat01);
-        assign!(map, '}', Cat02);
-        assign!(map, '$', Cat03);
-        assign!(map, '&', Cat04);
-        assign!(map, '\n', Cat05);
-        assign!(map, '\r', Cat05);
-        assign!(map, '#', Cat06);
-        assign!(map, '^', Cat07);
-        assign!(map, '_', Cat08);
-        assign!(map, '\0', Cat09);
+        assign!(map, '\\', Cat0);
+        assign!(map, '{', Cat1);
+        assign!(map, '}', Cat2);
+        assign!(map, '$', Cat3);
+        assign!(map, '&', Cat4);
+        assign!(map, '\n', Cat5);
+        assign!(map, '\r', Cat5);
+        assign!(map, '#', Cat6);
+        assign!(map, '^', Cat7);
+        assign!(map, '_', Cat8);
+        assign!(map, '\0', Cat9);
         assign!(map, ' ', Cat10);
         assign!(map, '\t', Cat10);
         assign!(map, 'a', 'z', Cat11);
