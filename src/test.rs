@@ -211,16 +211,49 @@ mod tokenizer_test {
         };
 
         assert_eq!(
-            tokenize("\\a b", &|t, token| {
+            tokenize("a \\a b", &|t, token| {
                 if let ControlSequence(_, _) = token {
                     t.catcode(' ', Cat13)
                 }
             }),
             vec![
-                ControlSequence("a".into(), Span::new(1, 0, 1)),
+                Character('a', Cat11),
+                Character(' ', Cat10),
+                ControlSequence("a".into(), Span::new(1, 2, 3)),
                 Character(' ', Cat13),
                 Character('b', Cat11),
                 Character(' ', Cat13),
+            ]
+        );
+
+        assert_eq!(
+            tokenize("abcdef hello world\n\\a~hhh", &|t, token| {
+                match token {
+                    Character(' ', _) => t.catcode('h', Cat5),
+                    Character('~', _) => t.catcode('h', Cat11),
+                    _ => (),
+                }
+            }),
+            vec![
+                Character('a', Cat11),
+                Character('b', Cat11),
+                Character('c', Cat11),
+                Character('d', Cat11),
+                Character('e', Cat11),
+                Character('f', Cat11),
+                Character(' ', Cat10),
+                Other(
+                    OtherToken::Skipped("ello world\r".into()),
+                    Span::new(1, 7, 18)
+                ),
+                // no additional space here, as the tokenizer was in SkippingBlanks before
+                // the line ending
+                ControlSequence("a".into(), Span::new(2, 0, 1)),
+                Character('~', Cat13),
+                Character('h', Cat11),
+                Character('h', Cat11),
+                Character('h', Cat11),
+                Character(' ', Cat10),
             ]
         );
     }
