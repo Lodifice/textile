@@ -51,8 +51,6 @@ pub enum OtherToken {
     /// Input which was skipped, e.g. by a premature end of line
     /// or by skipping spaces.
     Skipped(String),
-    /// A character which was represented by an escape sequence
-    EscapedCharacter(String),
 }
 
 /// A location in the input file.

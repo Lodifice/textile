@@ -51,6 +51,25 @@ mod tokenizer_test {
             ]
         );
         assert_eq!(
+            token_vec("\\\\  b"),
+            vec![
+                ControlSequence("\\".into(), Span::new(1, 0, 1)),
+                // first space is preserved because of non-letter CS
+                Character(' ', Cat10),
+                Other(Skipped(" ".into()), Span::new(1, 3, 3)),
+                Character('b', Cat11),
+                Character(' ', Cat10)
+            ]
+        );
+        assert_eq!(
+            token_vec("\\ a"),
+            vec![
+                ControlSequence(" ".into(), Span::new(1, 0, 1)),
+                Character('a', Cat11),
+                Character(' ', Cat10),
+            ]
+        );
+        assert_eq!(
             token_vec("\\test\t  %  abc"),
             vec![
                 ControlSequence("test".into(), Span::new(1, 0, 4)),
@@ -156,6 +175,15 @@ mod tokenizer_test {
             vec![
                 ControlSequence("\\".into(), Span::new(1, 0, 4)),
                 Character('a', Cat11),
+                Character(' ', Cat10)
+            ]
+        );
+        assert_eq!(
+            token_vec("\\^-A"),
+            vec![
+                ControlSequence("^".into(), Span::new(1, 0, 1)),
+                Character('-', Cat12),
+                Character('A', Cat11),
                 Character(' ', Cat10)
             ]
         );

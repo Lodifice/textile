@@ -98,13 +98,9 @@ where
         let mut result = vec![];
         let drain = self.intervals.drain(..);
         for (upper, value) in drain {
-            if result.last().map(|(_, v)| v) == Some(&value) {
-                match result.last_mut() {
-                    Some(last) => last.0 = upper,
-                    None => result.push((upper, value)),
-                }
-            } else {
-                result.push((upper, value));
+            match result.last_mut() {
+                Some((u, v)) if v == &value => *u = upper,
+                _ => result.push((upper, value)),
             }
         }
 
