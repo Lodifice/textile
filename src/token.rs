@@ -23,13 +23,68 @@ pub enum Category {
 
 use Category::*;
 
+/// Tokens not normally produced by TeX
+#[derive(Debug, PartialEq, Clone)]
+pub enum OtherToken {
+    Comment(String),
+    /// A character of class 9
+    IgnoredCharacter(char),
+    /// A character of class 15
+    InvalidCharacter(char),
+    /// Input which was skipped, e.g. by a premature end of line
+    /// or by skipping spaces.
+    Skipped(String),
+    /// A character which was represented by an escape sequence
+    EscapedCharacter(String),
+}
+
+/// A location in the input file.
+#[derive(Debug, Clone)]
+pub struct Span {
+    /// Line *number* the current token is generated from
+    pub line: usize,
+    /// Index of the first column of the span
+    pub start: usize,
+    /// Index of the last column of the span
+    pub end: usize,
+}
+
+impl Span {
+    pub fn new(line: usize, start: usize, end: usize) -> Self {
+        Span { line, start, end }
+    }
+
+    pub fn extend(&mut self, step: usize) {
+        self.end += step;
+    }
+
+    /// Dummy span, which is equal to any other span.
+    pub fn any() -> Self {
+        Span {
+            line: 0,
+            start: 0,
+            end: 0,
+        }
+    }
+}
+
+impl PartialEq for Span {
+    fn eq(&self, other: &Self) -> bool {
+        self.start == other.start && self.end == other.end && self.line == other.line
+            || self.start == 0 && self.end == 0 && self.line == 0
+            || other.start == 0 && other.end == 0 && other.line == 0
+    }
+}
+
 /// Tokens as described in chapter 7 of the texbook
 #[derive(Debug, PartialEq, Clone)]
 pub enum Token {
-    ControlSequence(String),
+    /// A TeX control sequence.
+    ControlSequence(String, Span),
+    /// A single TeX character with its category.
     Character(char, Category),
-    Comment(String),
-    Ignored(char),
+    /// A non-TeX token, useful for diagnostics
+    Other(OtherToken, Span),
 }
 
 /// The tokenizer states as described in chapter 8 of the texbook
@@ -47,15 +102,26 @@ pub struct Tokenizer<L> {
     lines: L,
     /// Buffer holding the current line
     line: String,
+    line_count: usize,
+
     /// Pointer to the current buffer position
     pos: usize,
     endlinechar: char,
+
+    /// Buffer of tokens. Alwas emptied before more TeX tokens are generated.
+    token_buffer: Vec<Token>,
 }
 
 impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // return sytax tokens first, if available
+        if let Some(t) = self.token_buffer.pop() {
+            return Some(t);
+        };
+
+        let mut here = self.here();
         let chr;
         loop {
             match self.pop_char() {
@@ -69,15 +135,18 @@ impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
                         return None;
                     }
                     self.state = TokenizerState::LineStart;
+                    here = self.here();
                 }
             };
         }
+        here.end = self.pos - 1;
+
         let cat = self.cat(chr);
 
         // process state as described in chapter 8, p. 46 of the texbook
         match cat {
             Cat00 => match self.pop_char() {
-                None => Some(Token::ControlSequence(String::new())),
+                None => self.push(Token::ControlSequence(String::new(), here)),
                 Some(c) => {
                     let mut content = String::new();
                     content.push(c);
@@ -97,42 +166,72 @@ impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
                         Cat10 => self.state = TokenizerState::SkippingBlanks,
                         _ => self.state = TokenizerState::LineMiddle,
                     };
-                    Some(Token::ControlSequence(content))
+                    here.end = self.pos - 1;
+                    self.push(Token::ControlSequence(content, here));
                 }
             },
             Cat01 | Cat02 | Cat03 | Cat04 | Cat06 | Cat07 | Cat08 | Cat11 | Cat12 | Cat13 => {
                 self.state = TokenizerState::LineMiddle;
-                Some(Token::Character(chr, cat))
+                self.push(Token::Character(chr, cat))
             }
             Cat05 => {
                 // throw away rest of line
-                while let Some(_) = self.pop_char() {}
+                let mut skipped = String::new();
+                while let Some(c) = self.pop_char() {
+                    skipped.push(c)
+                }
+                if !skipped.is_empty() {
+                    let mut loc = here.clone();
+                    loc.end = self.pos - 1;
+                    self.push(Token::Other(OtherToken::Skipped(skipped), loc));
+                }
                 match self.state {
-                    TokenizerState::LineStart => Some(Token::ControlSequence("par".into())),
-                    TokenizerState::LineMiddle => Some(Token::Character(' ', self.cat(' '))),
-                    TokenizerState::SkippingBlanks => self.next(),
+                    TokenizerState::LineStart => {
+                        self.push(Token::ControlSequence("par".into(), here))
+                    }
+                    TokenizerState::LineMiddle => self.push(Token::Character(' ', self.cat(' '))),
+                    TokenizerState::SkippingBlanks => (),
                 }
             }
-            Cat09 => self.next(),
+            Cat09 => {
+                self.push(Token::Other(OtherToken::IgnoredCharacter(chr), here));
+            }
             Cat10 => match self.state {
-                TokenizerState::LineStart | TokenizerState::SkippingBlanks => self.next(),
+                TokenizerState::LineStart | TokenizerState::SkippingBlanks => {
+                    let mut whitespace = String::new();
+                    whitespace.push(chr);
+                    let mut loc = here.clone();
+                    loop {
+                        match self.look_ahead() {
+                            Some(c) if self.cat(c) == Cat10 => {
+                                self.pop_char();
+                                whitespace.push(c);
+                            }
+                            _ => break,
+                        }
+                    }
+                    loc.end = self.pos - 1;
+                    self.push(Token::Other(OtherToken::Skipped(whitespace), loc))
+                }
                 TokenizerState::LineMiddle => {
                     self.state = TokenizerState::SkippingBlanks;
-                    Some(Token::Character(' ', self.cat(' ')))
+                    self.push(Token::Character(' ', self.cat(' ')))
                 }
             },
             Cat14 => {
+                eprintln!("comment with  {:?}", chr);
                 let mut comment = String::new();
                 while let Some(c) = self.pop_char() {
                     comment.push(c);
                 }
-                Some(Token::Comment(comment))
+                here.end = self.pos - 1;
+                self.push(Token::Other(OtherToken::Comment(comment), here));
             }
             Cat15 => {
-                eprintln!("invalid character {:?}", chr);
-                self.next()
+                self.push(Token::Other(OtherToken::InvalidCharacter(chr), here));
             }
-        }
+        };
+        self.next()
     }
 }
 
@@ -147,9 +246,19 @@ macro_rules! assign {
 }
 
 impl<L: Iterator<Item = String>> Tokenizer<L> {
+    /// Span of the next input character
+    fn here(&self) -> Span {
+        Span::new(self.line_count, self.pos, self.pos)
+    }
+
     /// The input from the current position
     fn input(&self) -> &str {
         &self.line[self.pos..]
+    }
+
+    /// Push a syntax token into the buffer.
+    fn push(&mut self, token: Token) {
+        self.token_buffer.insert(0, token);
     }
 
     /// Advance to the next line of input.
@@ -168,6 +277,7 @@ impl<L: Iterator<Item = String>> Tokenizer<L> {
         line.push(self.endlinechar);
         self.line = line;
         self.pos = 0;
+        self.line_count += 1;
         true
     }
 
@@ -245,7 +355,7 @@ impl<L: Iterator<Item = String>> Tokenizer<L> {
     }
 
     pub fn new(lines: L) -> Self {
-        let mut map = IntIntervalMap::new(Category::Cat14);
+        let mut map = IntIntervalMap::new(Category::Cat12);
 
         assign!(map, '\\', Cat00);
         assign!(map, '{', Cat01);
@@ -280,6 +390,8 @@ impl<L: Iterator<Item = String>> Tokenizer<L> {
             line: String::new(),
             endlinechar: '\r',
             pos: 0,
+            token_buffer: vec![],
+            line_count: 0,
         }
     }
 }
