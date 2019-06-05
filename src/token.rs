@@ -134,6 +134,15 @@ pub struct Tokenizer<L> {
     token_buffer: Vec<Token>,
 }
 
+/// Defines how the tokenizer may be interacted with during tokenization.
+pub trait TokenizerInteraction {
+    /// Change the category of character `chr` to `cat`.
+    ///
+    /// This changes the behaviour of the tokenizer for subsequent tokens.
+    /// For more information, refer to page 39 of the TeXbook.
+    fn catcode(&mut self, chr: char, category: Category);
+}
+
 impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
     type Item = Token;
 

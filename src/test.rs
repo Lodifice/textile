@@ -190,4 +190,38 @@ mod tokenizer_test {
             ]
         );
     }
+
+    #[test]
+    fn change_catcode() {
+        fn tokenize(
+            input: &'static str,
+            mapping: &Fn(Box<&mut dyn TokenizerInteraction>, &Token),
+        ) -> Vec<Token> {
+            let mut result: Vec<Token> = vec![];
+            let mut tokenizer = Tokenizer::new(input.lines().map(|s| s.to_owned()));
+            loop {
+                let token = match tokenizer.next() {
+                    Some(t) => t,
+                    None => break,
+                };
+                mapping(Box::new(&mut tokenizer), &token);
+                result.push(token);
+            }
+            result
+        };
+
+        assert_eq!(
+            tokenize("\\a b", &|t, token| {
+                if let ControlSequence(_, _) = token {
+                    t.catcode(' ', Cat13)
+                }
+            }),
+            vec![
+                ControlSequence("a".into(), Span::new(1, 0, 1)),
+                Character(' ', Cat13),
+                Character('b', Cat11),
+                Character(' ', Cat13),
+            ]
+        );
+    }
 }
