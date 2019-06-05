@@ -267,6 +267,56 @@ macro_rules! assign {
     };
 }
 
+impl<L: Iterator<Item = String>> TokenizerInteraction for Tokenizer<L> {
+    fn catcode(&mut self, chr: char, cat: Category) {
+        self.category_map.assign_single(chr as u32, cat);
+    }
+}
+
+impl<L: Iterator<Item = String>> Tokenizer<L> {
+    /// Create a new tokenizer over `lines` with default character class assignments.
+    pub fn new(lines: L) -> Self {
+        let mut map = IntIntervalMap::new(Category::Cat12);
+
+        assign!(map, '\\', Cat0);
+        assign!(map, '{', Cat1);
+        assign!(map, '}', Cat2);
+        assign!(map, '$', Cat3);
+        assign!(map, '&', Cat4);
+        assign!(map, '\n', Cat5);
+        assign!(map, '\r', Cat5);
+        assign!(map, '#', Cat6);
+        assign!(map, '^', Cat7);
+        assign!(map, '_', Cat8);
+        assign!(map, '\0', Cat9);
+        assign!(map, ' ', Cat10);
+        assign!(map, '\t', Cat10);
+        assign!(map, 'a', 'z', Cat11);
+        assign!(map, 'A', 'Z', Cat11);
+        assign!(map, '0', '9', Cat12);
+        assign!(map, '0', '9', Cat12);
+        assign!(map, ':', '@', Cat12);
+
+        assign!(map, '~', Cat13);
+        assign!(map, '%', Cat14);
+        assign!(map, '\x01', '\x08', Cat15);
+        assign!(map, '\x0b', Cat15);
+        assign!(map, '\x0c', Cat15);
+        assign!(map, '\x0e', '\x1f', Cat15);
+
+        Tokenizer {
+            category_map: map,
+            state: TokenizerState::LineStart,
+            lines,
+            line: String::new(),
+            endlinechar: '\r',
+            pos: 0,
+            token_buffer: vec![],
+            line_count: 0,
+        }
+    }
+}
+
 impl<L: Iterator<Item = String>> Tokenizer<L> {
     /// Span of the next input character
     fn here(&self) -> Span {
@@ -376,47 +426,5 @@ impl<L: Iterator<Item = String>> Tokenizer<L> {
             }
         }
         None
-    }
-
-    /// Create a new tokenizer over `lines` with default character class assignments.
-    pub fn new(lines: L) -> Self {
-        let mut map = IntIntervalMap::new(Category::Cat12);
-
-        assign!(map, '\\', Cat0);
-        assign!(map, '{', Cat1);
-        assign!(map, '}', Cat2);
-        assign!(map, '$', Cat3);
-        assign!(map, '&', Cat4);
-        assign!(map, '\n', Cat5);
-        assign!(map, '\r', Cat5);
-        assign!(map, '#', Cat6);
-        assign!(map, '^', Cat7);
-        assign!(map, '_', Cat8);
-        assign!(map, '\0', Cat9);
-        assign!(map, ' ', Cat10);
-        assign!(map, '\t', Cat10);
-        assign!(map, 'a', 'z', Cat11);
-        assign!(map, 'A', 'Z', Cat11);
-        assign!(map, '0', '9', Cat12);
-        assign!(map, '0', '9', Cat12);
-        assign!(map, ':', '@', Cat12);
-
-        assign!(map, '~', Cat13);
-        assign!(map, '%', Cat14);
-        assign!(map, '\x01', '\x08', Cat15);
-        assign!(map, '\x0b', Cat15);
-        assign!(map, '\x0c', Cat15);
-        assign!(map, '\x0e', '\x1f', Cat15);
-
-        Tokenizer {
-            category_map: map,
-            state: TokenizerState::LineStart,
-            lines,
-            line: String::new(),
-            endlinechar: '\r',
-            pos: 0,
-            token_buffer: vec![],
-            line_count: 0,
-        }
     }
 }
