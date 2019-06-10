@@ -16,7 +16,7 @@ where
     fn assign(&mut self, range: Range<Idx>, value: V) {
         let guessed_intervals: Vec<(Idx, V)> = shelve(&[(range.start,value), (range.end,value)],
                                                       self.intervals.clone());
-        self.intervals = dedup(&range.start, &range.end, guessed_intervals);
+        self.intervals = Dedup::new(|(s1,v1), (s2,v2)| v1 == v2, guessed_intervals.into_iter()).collect();
     }
 
     fn assign_single(&mut self, single: Idx, value: V) {
@@ -94,17 +94,39 @@ fn shelve<Idx: Copy + PartialOrd, V: Copy + PartialEq>(todo: &[(Idx, V)], imap: 
     }
 }
 
-fn dedup<Idx: Copy + PartialOrd, V: Copy + PartialEq>(start: &Idx, end: &Idx, imap: Vec<(Idx, V)>) -> Vec<(Idx, V)> {
-    match imap.as_slice() {
-        [] => imap.into(),
-        [_single] => imap.into(),
-        [(s1, v1), (s2, v2), rest..] => {
-            if  v1 == v2 {
-                dedup(start, end, cons((*s1, *v1), rest.to_vec()))
-            } else {
-                cons((*s1, *v1), dedup(start, end, cons((*s2, *v2), rest.to_vec())))
+struct Dedup<A, I> {
+    eqls: fn(&A, &A) -> bool,
+    last: Option<A>,
+    iter: I,
+}
+
+impl<A: Clone, I: Iterator<Item=A>> Dedup<A, I> {
+    fn new(eqls: fn(&A, &A) -> bool, mut iter: I) -> Dedup<A, I> {
+        Dedup { eqls: eqls, last: iter.next().map(|x| x.clone()), iter }
+    }
+}
+
+impl<A: Clone, I: Iterator<Item=A>> Iterator for Dedup<A, I> {
+    type Item = A;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ret = self.last.clone();
+        loop {
+            match self.iter.next() {
+                Some(a) => {
+                    if !(self.eqls)(&a, self.last.as_ref().unwrap()) {
+                        self.last = Some(a);
+                        break;
+                    }
+                    self.last = Some(a);
+                },
+                None => {
+                    self.last = None;
+                    break;
+                }
             }
-        },
+        }
+        ret
     }
 }
 
