@@ -6,4 +6,3 @@ edition = "2018"
 
 [dependencies]
 num = "0.2"
-gen-iter = { git = "https://github.com/sumeet/gen-iter" }

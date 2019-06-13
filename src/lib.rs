@@ -1,10 +1,5 @@
-#![feature(generators)]
-#![feature(slice_patterns)]
-
-mod imap;
+mod interval_map;
 pub mod token;
-
-extern crate gen_iter;
 
 #[cfg(test)]
 mod test;
