@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::ops::Range;
 
+use gen_iter::GenIter;
 use num::{Bounded, Num};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -10,12 +11,11 @@ pub struct IntIntervalMap<Idx, V> {
 
 impl<Idx, V> IntervalMap<Idx, V> for IntIntervalMap<Idx, V>
 where
-    Idx: Copy + PartialOrd + Num + Bounded,
-    V: Copy + PartialEq,
+    Idx: Copy + PartialOrd + Num + Bounded + Debug,
+    V: Copy + PartialEq + Debug,
 {
     fn assign(&mut self, range: Range<Idx>, value: V) {
-        let guessed_intervals: Vec<(Idx, V)> = shelve(&[(range.start,value), (range.end,value)],
-                                                      self.intervals.clone());
+        let guessed_intervals: Vec<(Idx, V)> = shelve(range, value, &mut self.intervals).collect();
         self.intervals = Dedup::new(|(s1,v1), (s2,v2)| v1 == v2, guessed_intervals.into_iter()).collect();
     }
 
@@ -65,33 +65,62 @@ where
     }
 }
 
-fn shelve<Idx: Copy + PartialOrd, V: Copy + PartialEq>(todo: &[(Idx, V)], imap: Vec<(Idx, V)>) -> Vec<(Idx, V)> {
-    match imap.as_slice() {
-        [] => todo.to_vec(),
-        [(l,v), rest..] => match todo {
-            [(s,v1), (e,v2)] => {
-                if e < l {
-                    cons((*s,*v1), cons((*e,*v2), imap))
-                } else if s < l {
-                    cons((*s,*v1), shelve(&[(*e,*v)], imap))
-                } else if s == l {
-                    cons((*s,*v1), shelve(&[(*e,*v)], rest.to_vec()))
-                } else {
-                    cons((*l,*v), shelve(&[(*s,*v1), (*e,*v)], rest.to_vec()))
-                }
-            },
-            [(e,v2)] => {
-                if e < l {
-                    cons((*e,*v2), imap)
-                } else if e == l {
-                    imap
-                } else {
-                    shelve(&[(*e,*v)], rest.to_vec())
-                }
-            },
-            _ => unreachable!(),
-        },
-    }
+fn shelve<'a, Idx: Copy + PartialOrd, V: Copy + PartialEq>(range: Range<Idx>, value: V, imap: &'a mut Vec<(Idx, V)>) -> impl Iterator<Item=(Idx, V)> + 'a {
+    GenIter(move || {
+        let mut start = Some((range.start, value));
+        let mut end = Some((range.end, value));
+
+        while let Some((l, v)) = imap.first() {
+            match (start, end) {
+                (Some((s,v1)), Some((e,v2))) => {
+                    if e < *l {
+                        yield (s, v1);
+                        yield (e, v2);
+                        start = None;
+                        end = None;
+                    } else if s < *l {
+                        yield (s, v1);
+                        end = Some((e, *v));
+                        start = None;
+                    } else if s == *l {
+                        yield (s, v1);
+                        end = Some((e, *v));
+                        start = None;
+                        imap.remove(0);
+                    } else {
+                        yield (*l, *v);
+                        start = Some((s, v1));
+                        end = Some((e, *v));
+                        imap.remove(0);
+                    }
+                },
+                (None, Some((e,v2))) => {
+                    if e < *l {
+                        yield (e, v2);
+                        end = None;
+                    } else if e == *l {
+                        end = None;
+                    } else {
+                        end = Some((e, *v));
+                        imap.remove(0);
+                    }
+                },
+                (None, None) => {
+                    yield (*l, *v);
+                    imap.remove(0);
+                },
+                _ => unreachable!()
+            }
+        }
+
+        if let Some((l, v)) = start {
+            yield (l, v);
+        }
+
+        if let Some((l, v)) = end {
+            yield (l, v);
+        }
+    })
 }
 
 struct Dedup<A, I> {
@@ -128,12 +157,6 @@ impl<A: Clone, I: Iterator<Item=A>> Iterator for Dedup<A, I> {
         }
         ret
     }
-}
-
-fn cons<A>(head: A, mut tail: Vec<A>) -> Vec<A> {
-    let mut new_vec = vec![head];
-    new_vec.append(&mut tail);
-    new_vec
 }
 
 pub trait IntervalMap<Idx, V>
