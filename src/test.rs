@@ -286,34 +286,3 @@ mod tokenizer_test {
         );
     }
 }
-
-#[cfg(test)]
-mod expansion_test {
-    use crate::macros::*;
-    use crate::token::{Category::*, OtherToken::*, Token::*, *};
-
-    fn token(input: &str) -> Vec<Token> {
-        let tokenizer = Tokenizer::new(input.lines().map(|s| s.to_owned()));
-        tokenizer.collect()
-    }
-
-    #[test]
-    fn define_macro() {
-        let cs = ControlSequence("test".to_owned(), crate::token::Span::any());
-        let param = vec![];
-        let replacement = token("hello world!");
-        assert!(Macro::define(cs, param, replacement).is_ok());
-    }
-
-    #[test]
-    fn define_macro_with_args() {
-        let cs = ControlSequence("PickTwo".to_owned(), crate::token::Span::any());
-        let param = token("#1abc#2");
-        let replacement = token("(#1,#2)");
-        assert_eq!(
-            Err(ExpansionError::ExplicitBracesInParameterText),
-            Macro::define(cs.clone(), token("#1{#2}"), replacement.clone())
-        );
-        let m = Macro::define(cs, param, replacement).expect("could not define macro!");
-    }
-}

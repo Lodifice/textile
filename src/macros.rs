@@ -3,7 +3,7 @@ use crate::token::*;
 use std::error::Error;
 
 /// A location in the input file.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Span {
     /// Line *number* and column *index* of the location start.
     pub start: (usize, usize),
@@ -19,14 +19,28 @@ impl Span {
     pub fn extend_to(&mut self, end: (usize, usize)) {
         self.end = end;
     }
+
+    pub fn any() -> Self {
+        Span {
+            start: (0, 0),
+            end: (0, 0),
+        }
+    }
+}
+
+impl PartialEq for Span {
+    fn eq(&self, other: &Span) -> bool {
+        (self.start == other.start && self.end == other.end)
+            || (self.start == (0, 0) && self.end == (0, 0))
+    }
 }
 
 /// Parameters of a macro.
 /// Can be undelimited or delimited.
 #[derive(Debug, Clone, PartialEq)]
 enum MacroParameter {
-    Undelimited { number: u8 },
-    Delimited { number: u8, delimiter: Vec<Token> },
+    Undelimited(u8),
+    Delimited(u8, Vec<Token>),
 }
 
 /// Represents the definition of a TeX macro.
@@ -98,14 +112,14 @@ impl Macro {
         let mut finish_param = |number, delim_vec: &mut Vec<Token>| {
             // undelimited parameters
             if delim_vec.is_empty() {
-                params.push(MacroParameter::Undelimited { number });
+                params.push(MacroParameter::Undelimited(number));
             // delimited parameters have a token list which delimits them
             // from the previous parameters
             } else {
-                params.push(MacroParameter::Delimited {
+                params.push(MacroParameter::Delimited(
                     number,
-                    delimiter: delim_vec.drain(..).collect(),
-                });
+                    delim_vec.drain(..).collect(),
+                ));
             }
         };
         for token in param_text {
@@ -131,7 +145,6 @@ impl Macro {
             }
             arg_start = false;
         }
-        eprintln!("{:?}", param_number);
         if let Some(number) = param_number {
             finish_param(number, &mut delimiter)
         }
@@ -161,5 +174,49 @@ impl Macro {
                 end: def_end,
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod expansion_test {
+    use crate::macros::*;
+    use crate::token::{Category::*, OtherToken::*, Token::*, *};
+
+    fn tokens(input: &str) -> Vec<Token> {
+        let mut tokenizer = Tokenizer::new(input.lines().map(|s| s.to_owned()));
+        // disable endlinechar
+        tokenizer.set_endlinechar(std::char::from_u32(256).unwrap());
+        tokenizer.collect()
+    }
+
+    #[test]
+    fn define_macro() {
+        let cs = ControlSequence("test".to_owned(), crate::token::Span::any());
+        let param = vec![];
+        let replacement = tokens("hello world!");
+        assert!(Macro::define(cs, param, replacement).is_ok());
+    }
+
+    #[test]
+    fn define_macro_with_args() {
+        let cs = ControlSequence("PickTwo".to_owned(), crate::token::Span::any());
+        let param = tokens("#1abc#2");
+        let replacement = tokens("(#1,#2)");
+        assert_eq!(
+            Err(ExpansionError::ExplicitBracesInParameterText),
+            Macro::define(cs.clone(), tokens("#1{#2}"), replacement.clone())
+        );
+        assert_eq!(
+            Macro {
+                control_sequence: "PickTwo".into(),
+                parameters: vec![
+                    MacroParameter::Delimited(1, tokens("abc")),
+                    MacroParameter::Undelimited(2)
+                ],
+                replacement_text: replacement.clone(),
+                location: crate::macros::Span::any()
+            },
+            Macro::define(cs, param, replacement).expect("could not define macro!")
+        );
     }
 }
