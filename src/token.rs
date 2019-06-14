@@ -139,6 +139,15 @@ pub trait TokenizerInteraction {
     /// This changes the behaviour of the tokenizer for subsequent tokens.
     /// For more information, refer to page 39 of the TeXbook.
     fn catcode(&mut self, chr: char, category: Category);
+
+    /// Change the endlinechar to `chr`. (See p. 48 of the TeXBook).
+    ///
+    /// If greater than 255, no character is appended to the line,
+    /// which is equivalent to ending the line with a comment in plain TeX.
+    fn set_endlinechar(&mut self, chr: char);
+
+    /// Get the current value of \endlinechar.
+    fn get_endlinechar(&self) -> char;
 }
 
 impl<L: Iterator<Item = String>> Iterator for Tokenizer<L> {
@@ -278,6 +287,14 @@ impl<L: Iterator<Item = String>> TokenizerInteraction for Tokenizer<L> {
     fn catcode(&mut self, chr: char, cat: Category) {
         self.category_map.assign_single(chr as u32, cat);
     }
+
+    fn set_endlinechar(&mut self, chr: char) {
+        self.endlinechar = chr;
+    }
+
+    fn get_endlinechar(&self) -> char {
+        self.endlinechar
+    }
 }
 
 impl<L: Iterator<Item = String>> Tokenizer<L> {
@@ -353,7 +370,9 @@ impl<L: Iterator<Item = String>> Tokenizer<L> {
             None => return false,
         };
         line.truncate(line.trim_end_matches(' ').len());
-        line.push(self.endlinechar);
+        if self.endlinechar as u32 <= 255 {
+            line.push(self.endlinechar);
+        }
         self.line = line;
         self.pos = 0;
         self.line_count += 1;
