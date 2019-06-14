@@ -98,6 +98,13 @@ pub enum Token {
     ControlSequence(String, Span),
     /// A single TeX character with its category.
     Character(char, Category),
+    /// A parameter token (see section 2.7.4 of TeX by Topic)
+    ///
+    /// This token type is not directly emitted by the tokenizer,
+    /// but constructed in macro definitions. This is because parameter
+    /// token construction can fail, as only digits and another parameter character
+    /// is allowed to follow.
+    Parameter(u8),
     /// A non-TeX token, useful for diagnostics
     Other(OtherToken, Span),
 }

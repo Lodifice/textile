@@ -35,21 +35,13 @@ impl PartialEq for Span {
     }
 }
 
-/// Parameters of a macro.
-/// Can be undelimited or delimited.
-#[derive(Debug, Clone, PartialEq)]
-enum MacroParameter {
-    Undelimited(u8),
-    Delimited(u8, Vec<Token>),
-}
-
 /// Represents the definition of a TeX macro.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Macro {
     /// The control sequence name of this macro.
     control_sequence: String,
     /// Parameter token list.
-    parameters: Vec<MacroParameter>,
+    parameter_text: Vec<Token>,
     /// Output token list.
     replacement_text: Vec<Token>,
     /// Where the macro was defined
@@ -108,59 +100,36 @@ impl Error for ExpansionError {
 }
 
 impl Macro {
-    /// Parse the parameter list.
-    fn parse_param_list(param_text: Vec<Token>) -> Result<Vec<MacroParameter>, ExpansionError> {
-        let mut delimiter = vec![];
-        let mut param_number = None;
+    /// Build parameter tokens from a token list.
+    fn parse_parameter_tokens(token_list: Vec<Token>) -> Result<Vec<Token>, ExpansionError> {
         let mut arg_start = false;
-        let mut params = vec![];
+        let mut result = vec![];
 
-        let mut finish_param = |number, delim_vec: &mut Vec<Token>| {
-            // undelimited parameters
-            if delim_vec.is_empty() {
-                params.push(MacroParameter::Undelimited(number));
-            // delimited parameters have a token list which delimits them
-            // from the previous parameters
-            } else {
-                params.push(MacroParameter::Delimited(
-                    number,
-                    delim_vec.drain(..).collect(),
-                ));
-            }
-        };
-        for token in param_text {
+        for token in token_list {
             if arg_start {
-                match (param_number, token) {
-                    (None, Token::Character(c, Category::Cat12))
-                        if c.is_ascii_digit() && c > '0' =>
-                    {
-                        param_number = Some(((c as u32) - 48) as u8)
+                match token {
+                    Token::Character(c, Category::Cat12) if ('1'..='9').contains(&c) => {
+                        result.push(Token::Parameter(((c as u32) - 48) as u8))
                     }
+                    Token::Character(_, Category::Cat6) => result.push(token),
                     _ => return Err(ExpansionError::InvalidParameterNumber),
                 }
                 arg_start = false;
             } else {
-                match (param_number, token) {
-                    (None, Token::Character(_, Category::Cat6)) => {
-                        arg_start = true;
-                    }
-                    (Some(number), Token::Character(_, Category::Cat6)) => {
-                        finish_param(number, &mut delimiter);
-                        param_number = None;
-                        arg_start = true;
-                    }
-                    (_, Token::Character(_, Category::Cat1))
-                    | (_, Token::Character(_, Category::Cat2)) => {
+                match token {
+                    Token::Character(_, Category::Cat6) => arg_start = true,
+                    Token::Character(_, Category::Cat1) | Token::Character(_, Category::Cat2) => {
                         return Err(ExpansionError::ExplicitBracesInParameterText)
                     }
-                    (_, token) => delimiter.push(token),
+                    _ => result.push(token),
                 }
             }
         }
-        if let Some(number) = param_number {
-            finish_param(number, &mut delimiter)
+
+        if arg_start {
+            return Err(ExpansionError::InvalidParameterNumber);
         }
-        Ok(params)
+        Ok(result)
     }
 
     pub fn define(
@@ -173,13 +142,14 @@ impl Macro {
             _ => return Err(ExpansionError::InvalidDefName),
         };
 
-        let params = Self::parse_param_list(parameter_text)?;
+        let params = Self::parse_parameter_tokens(parameter_text)?;
+        let replacement = Self::parse_parameter_tokens(replacement_text)?;
 
         let def_end = (0, 0);
         Ok(Macro {
             control_sequence: name,
-            parameters: params,
-            replacement_text,
+            parameter_text: params,
+            replacement_text: replacement,
             location: Span {
                 start: def_start,
                 end: def_end,
@@ -191,7 +161,7 @@ impl Macro {
 #[cfg(test)]
 mod expansion_test {
     use crate::macros::*;
-    use crate::token::{Category::*, OtherToken::*, Token::*, *};
+    use crate::token::{Category::*, Token::*};
 
     fn tokens(input: &str) -> Vec<Token> {
         let mut tokenizer = Tokenizer::new(input.lines().map(|s| s.to_owned()));
@@ -232,11 +202,20 @@ mod expansion_test {
         assert_eq!(
             Macro {
                 control_sequence: "PickTwo".into(),
-                parameters: vec![
-                    MacroParameter::Delimited(1, tokens("abc")),
-                    MacroParameter::Undelimited(2)
+                parameter_text: vec![
+                    Parameter(1),
+                    Character('a', Cat11),
+                    Character('b', Cat11),
+                    Character('c', Cat11),
+                    Parameter(2)
                 ],
-                replacement_text: replacement.clone(),
+                replacement_text: vec![
+                    Character('(', Cat12),
+                    Parameter(1),
+                    Character(',', Cat12),
+                    Parameter(2),
+                    Character(')', Cat12)
+                ],
                 location: crate::macros::Span::any()
             },
             Macro::define(cs, param, replacement).expect("could not define macro!")
