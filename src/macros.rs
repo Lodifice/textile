@@ -61,6 +61,7 @@ pub enum ExpansionError {
     InvalidDefName,
     ExplicitBracesInParameterText,
     NonConsequitiveParameterNumber,
+    InvalidParameterNumber,
 }
 
 impl std::fmt::Display for ExpansionError {
@@ -73,6 +74,7 @@ impl std::fmt::Display for ExpansionError {
             ExpansionError::NonConsequitiveParameterNumber => {
                 write!(f, "Non-Consequtive Parameter Number in Parameter Text")
             }
+            ExpansionError::InvalidParameterNumber => write!(f, "Invalid Parameter Number"),
         }
     }
 }
@@ -89,6 +91,9 @@ impl Error for ExpansionError {
             ExpansionError::NonConsequitiveParameterNumber => {
                 "Macro parameters must be numbered consequtively!"
             }
+            ExpansionError::InvalidParameterNumber => {
+                "Macro parameter names must be numbers with category code 12!"
+            }
         }
     }
 
@@ -97,6 +102,7 @@ impl Error for ExpansionError {
             ExpansionError::InvalidDefName => None,
             ExpansionError::ExplicitBracesInParameterText => None,
             ExpansionError::NonConsequitiveParameterNumber => None,
+            ExpansionError::InvalidParameterNumber => None,
         }
     }
 }
@@ -123,27 +129,33 @@ impl Macro {
             }
         };
         for token in param_text {
-            match (param_number, token) {
-                (None, Token::Character(_, Category::Cat6)) => {
-                    arg_start = true;
-                    continue;
+            if arg_start {
+                match (param_number, token) {
+                    (None, Token::Character(c, Category::Cat12))
+                        if c.is_ascii_digit() && c > '0' =>
+                    {
+                        param_number = Some(((c as u32) - 48) as u8)
+                    }
+                    _ => return Err(ExpansionError::InvalidParameterNumber),
                 }
-                (Some(number), Token::Character(_, Category::Cat6)) => {
-                    finish_param(number, &mut delimiter);
-                    param_number = None;
-                    arg_start = true;
-                    continue;
+                arg_start = false;
+            } else {
+                match (param_number, token) {
+                    (None, Token::Character(_, Category::Cat6)) => {
+                        arg_start = true;
+                    }
+                    (Some(number), Token::Character(_, Category::Cat6)) => {
+                        finish_param(number, &mut delimiter);
+                        param_number = None;
+                        arg_start = true;
+                    }
+                    (_, Token::Character(_, Category::Cat1))
+                    | (_, Token::Character(_, Category::Cat2)) => {
+                        return Err(ExpansionError::ExplicitBracesInParameterText)
+                    }
+                    (_, token) => delimiter.push(token),
                 }
-                (None, Token::Character(c, _)) if c.is_ascii_digit() && arg_start => {
-                    param_number = Some(((c as u32) - 48) as u8)
-                }
-                (_, Token::Character(_, Category::Cat1))
-                | (_, Token::Character(_, Category::Cat2)) => {
-                    return Err(ExpansionError::ExplicitBracesInParameterText)
-                }
-                (_, token) => delimiter.push(token),
             }
-            arg_start = false;
         }
         if let Some(number) = param_number {
             finish_param(number, &mut delimiter)
@@ -162,7 +174,6 @@ impl Macro {
         };
 
         let params = Self::parse_param_list(parameter_text)?;
-        eprintln!("{:?}", params);
 
         let def_end = (0, 0);
         Ok(Macro {
@@ -203,8 +214,20 @@ mod expansion_test {
         let param = tokens("#1abc#2");
         let replacement = tokens("(#1,#2)");
         assert_eq!(
+            Err(ExpansionError::InvalidParameterNumber),
+            Macro::define(cs.clone(), tokens("#0"), vec![])
+        );
+        assert_eq!(
             Err(ExpansionError::ExplicitBracesInParameterText),
-            Macro::define(cs.clone(), tokens("#1{#2}"), replacement.clone())
+            Macro::define(cs.clone(), tokens("#1{#2}"), vec![])
+        );
+        assert_eq!(
+            Err(ExpansionError::InvalidParameterNumber),
+            Macro::define(cs.clone(), tokens("#{#2"), vec![])
+        );
+        assert_eq!(
+            Err(ExpansionError::InvalidParameterNumber),
+            Macro::define(cs.clone(), tokens("#abc#2"), vec![])
         );
         assert_eq!(
             Macro {
